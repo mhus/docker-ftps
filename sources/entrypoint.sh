@@ -13,69 +13,33 @@ APP_USER_PASSWD=${APP_USER_PASSWD:=admin}
 if [ -f "$FTPS_SOURCE_DIR/Initialized" ] && [ "$FORCE_REINIT_CONFIG" = false ]; then
 	echo "[] Skip initializing"
 else
-	echo "[] Creating initial data ..."	
-	chmod 770 $FTPS_SOURCE_DIR/eventscripts/*.sh || true
-	echo "[] Running on_pre_init.sh ..."
-		. $FTPS_SOURCE_DIR/eventscripts/on_pre_init.sh || true
+	echo "[] Substitute config file"
+	$FTPS_SOURCE_DIR/substitute.py $FTPS_SOURCE_DIR/vsftpd.conf /etc/vsftpd/vsftpd.conf
 	echo "[] Done."
-	
-	
-	echo "[] Creating User: $APP_USER_NAME ..."
-		useradd -m -d $FTPS_USER_HOME -s /bin/bash $APP_USER_NAME || true
-		
-		groupadd $APP_USER_NAME || true
-		useradd $APP_USER_NAME -g $APP_USER_NAME || true
-	echo "[] Done."
-	
-	echo "[] Changing UID/GID: $APP_UID|$APP_GID ..."
-		groupmod -o -g $APP_GID $APP_USER_NAME || true
-		usermod -o -u $APP_UID $APP_USER_NAME || true
-	echo "[] Done."
-	
-	echo "[] Setting password: ${APP_USER_NAME}"	
-		echo -e "${APP_USER_PASSWD}\n${APP_USER_PASSWD}\n" | passwd ${APP_USER_NAME}
-	echo "[] Done."
-	
-	echo "[] Coping configs ..."		
-		cp $FTPS_SOURCE_DIR/vsftpd.conf /etc/vsftpd/vsftpd.conf
-		echo "" >> /etc/vsftpd/vsftpd.conf
-		echo "pasv_min_port=$PASSV_MIN_PORT" >> /etc/vsftpd/vsftpd.conf
-		echo "pasv_max_port=$PASSV_MAX_PORT" >> /etc/vsftpd/vsftpd.conf
-		echo "local_umask=$APP_UMASK" >> /etc/vsftpd/vsftpd.conf
-		if [ "$USE_SSL" = true ]; then
-			echo "ssl_enable=YES" >> /etc/vsftpd/vsftpd.conf
-			echo "rsa_cert_file=/usr/certs/cert.crt" >> /etc/vsftpd/vsftpd.conf
-			echo "rsa_private_key_file=/usr/certs/cert.key" >> /etc/vsftpd/vsftpd.conf
-			echo "allow_anon_ssl=NO" >> /etc/vsftpd/vsftpd.conf
-			echo "force_local_data_ssl=YES" >> /etc/vsftpd/vsftpd.conf
-			echo "force_local_logins_ssl=YES" >> /etc/vsftpd/vsftpd.conf
-			echo "ssl_tlsv1=YES" >> /etc/vsftpd/vsftpd.conf
-			echo "ssl_sslv2=NO" >> /etc/vsftpd/vsftpd.conf
-			echo "ssl_sslv3=NO" >> /etc/vsftpd/vsftpd.conf
-			echo "require_ssl_reuse=NO" >> /etc/vsftpd/vsftpd.conf
-			echo "ssl_ciphers=HIGH" >> /etc/vsftpd/vsftpd.conf
-			echo "implicit_ssl=YES" >> /etc/vsftpd/vsftpd.conf
-		else
-			echo "ssl_enable=NO" >> /etc/vsftpd/vsftpd.conf
-		fi
-	echo "[] Done."
-	
-	echo "[] Fixing permision ..."
-		chown $APP_USER_NAME:$APP_USER_NAME $FTPS_USER_HOME
-		chown $APP_USER_NAME:$APP_USER_NAME $FTPS_USER_HOME/data || true
+
+	UIDX=$APP_UID
+
+	for name in $USERS; do
+
+		echo "[] Creating User: $UIDX as $name"
+		groupadd $name || true
+		p=PASSWD_$name
+		useradd -m -d /home/$name -m -s /bin/bash -g $APP_GID -u $UIDX $name -G $name -p ${!p} || true
+
+		mkdir /home/$name/data
+		chown $name:$name /home/$name/data
+
+		let UIDX=$UIDX+1
+	done
+
 	echo "Done."
 	
-	
 	touch $FTPS_SOURCE_DIR/Initialized || true
-	echo "[] Running on_post_init.sh ..."
-		. $FTPS_SOURCE_DIR/eventscripts/on_post_init.sh || true
-	echo "[] Done."	
 	echo "[] Initialize complete."
 fi
 
-echo "[] Running on_run.sh ..."
-. $FTPS_SOURCE_DIR/eventscripts/on_run.sh || true
-echo "[] Done."	
 echo "[] Run vsftpd ..."
+touch /var/log/vsftpd.log
 /usr/sbin/vsftpd /etc/vsftpd/vsftpd.conf
 echo "[] Done."	
+exec tail -f /var/log/vsftpd.log
